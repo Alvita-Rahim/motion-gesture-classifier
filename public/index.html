@@ -410,6 +410,7 @@
 </div>
 
 <script src="edge-impulse-standalone.js"></script>
+<script src="run-impulse.js"></script>
 <script>
 (function(){
 
@@ -547,72 +548,57 @@
 
   /* ============================================================
      EDGE IMPULSE MODEL
+     Uses the official EdgeImpulseClassifier wrapper from run-impulse.js,
+     which correctly allocates WASM heap memory and calls
+     Module.run_classifier(ptr, length, debug) under the hood.
+     See: https://docs.edgeimpulse.com/docs/run-inference/webassembly/through-webassembly-browser
      ============================================================ */
   let classifierReady = false;
-  let classifierInitialized = false;
   let ei_labels = LABELS_FALLBACK.slice();
-  let runImpulse = null; // function(features) -> result
+  let classifier = null;
 
   function setModelStatus(text){ modelStatusEl.textContent = `model: ${text}`; }
 
-  function initClassifier(){
-    // edge-impulse-standalone.js exposes a global `Module` (Emscripten) and,
-    // once ready, helper bindings on `window` for running the classifier.
+  async function initClassifier(){
     if (typeof Module === 'undefined'){
       setModelStatus('script not found');
       log('error: edge-impulse-standalone.js did not load. Check /public path.');
       return;
     }
+    if (typeof EdgeImpulseClassifier === 'undefined'){
+      setModelStatus('wrapper not found');
+      log('error: run-impulse.js did not load. Make sure it sits next to index.html.');
+      return;
+    }
 
-    Module.onRuntimeInitialized = function(){
+    try{
+      classifier = new EdgeImpulseClassifier();
+      await classifier.init();
+
       try{
-        // Standard EI WASM exposes these helpers once the runtime is up.
-        // init_impulse() resets internal state; some builds also export
-        // get_project() for metadata such as labels and frequency.
-        if (typeof Module.init_impulse === 'function'){
-          Module.init_impulse();
-        }
+        const props = classifier.getProperties();
+        if (props && props.labels && props.labels.length) ei_labels = props.labels;
+      }catch(e){ /* getProperties shape can vary; fall back to default labels */ }
 
-        if (typeof Module.get_properties === 'function'){
-          try{
-            const props = Module.get_properties();
-            if (props && props.labels && props.labels.length) ei_labels = props.labels;
-          }catch(e){ /* not all builds expose this the same way */ }
-        }
-
-        classifierInitialized = true;
-        classifierReady = true;
-        setModelStatus('ready · ' + ei_labels.join(', '));
-        log('Edge Impulse WASM runtime initialized.');
-      }catch(e){
-        setModelStatus('init failed');
-        log('classifier init error: ' + e.message);
-      }
-    };
+      classifierReady = true;
+      setModelStatus('ready · ' + ei_labels.join(', '));
+      log('Edge Impulse WASM runtime initialized.');
+    }catch(e){
+      setModelStatus('init failed');
+      log('classifier init error: ' + e.message);
+    }
   }
 
   /**
    * Runs one classification pass on a flattened [x0,y0,z0,x1,y1,z1,...] array.
-   * Wraps the standalone WASM's exposed `run_classifier` (the standard
-   * Edge Impulse JS binding signature: run_classifier(rawFeatures, debug)).
+   * Delegates to EdgeImpulseClassifier.classify(), which handles writing the
+   * float buffer into WASM heap memory and reading back the native result.
    */
   function classify(features){
-    if (!classifierReady || typeof Module === 'undefined') return null;
+    if (!classifierReady || !classifier) return null;
 
     try{
-      // Most EI standalone builds expose `Module.run_classifier` returning
-      // { results: [{label, value}, ...], anomaly, timing: {dsp, classification, anomaly} }
-      if (typeof Module.run_classifier === 'function'){
-        const res = Module.run_classifier(features, false);
-        return res;
-      }
-
-      // Some builds wrap classification behind a `WasmClassifier`-style object.
-      if (typeof Module.classify === 'function'){
-        return Module.classify(features);
-      }
-
-      return null;
+      return classifier.classify(features, false); // { anomaly, results: [{label, value}, ...] }
     }catch(e){
       log('inference error: ' + e.message);
       return null;
