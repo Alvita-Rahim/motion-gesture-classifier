@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>MOTUS — Gesture Classifier</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-0:#07090c;
+    --bg-1:#0c1116;
+    --panel:#111820;
+    --panel-edge: rgba(255,255,255,0.06);
+    --line: rgba(255,255,255,0.08);
+    --ink-0:#eef3f6;
+    --ink-1:#a8b4bd;
+    --ink-2:#5d6b76;
+
+    --ch-x:#5eead4; /* cyan   - X axis */
+    --ch-y:#fb7185; /* rose   - Y axis */
+    --ch-z:#a78bfa; /* violet - Z axis */
+
+    --g-circle:#a78bfa;
+    --g-wave:#fb7185;
+    --g-idle:#3b4750;
+    --g-amber:#fbbf24;
+
+    --radius:18px;
+    --radius-sm:10px;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+
+  body{
+    background:
+      radial-gradient(1100px 700px at 18% -10%, rgba(94,234,212,0.07), transparent 60%),
+      radial-gradient(900px 600px at 100% 10%, rgba(167,139,250,0.06), transparent 55%),
+      var(--bg-0);
+    color:var(--ink-0);
+    font-family:'Outfit', sans-serif;
+    min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+
+  .mono{ font-family:'JetBrains Mono', monospace; }
+
+  /* faint instrument grid backdrop */
+  .grid-veil{
+    position:fixed; inset:0; pointer-events:none; z-index:0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size:42px 42px;
+    mask-image: radial-gradient(circle at 50% 0%, black 0%, transparent 75%);
+  }
+
+  .shell{
+    position:relative; z-index:1;
+    max-width:980px;
+    margin:0 auto;
+    padding:28px 20px 60px;
+  }
+
+  /* ---------- Header strip ---------- */
+  header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:16px;
+    padding:14px 18px;
+    border-radius:var(--radius);
+    background:linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.015));
+    border:1px solid var(--panel-edge);
+    backdrop-filter: blur(14px);
+    margin-bottom:22px;
+  }
+
+  .brand{
+    display:flex; align-items:center; gap:12px;
+  }
+  .brand-mark{
+    width:38px; height:38px;
+    border-radius:10px;
+    background: conic-gradient(from 200deg, var(--ch-x), var(--ch-y), var(--ch-z), var(--ch-x));
+    display:flex; align-items:center; justify-content:center;
+    position:relative;
+    box-shadow: 0 0 24px rgba(94,234,212,0.25);
+  }
+  .brand-mark::after{
+    content:"";
+    position:absolute; inset:3px;
+    border-radius:8px;
+    background:var(--bg-1);
+  }
+  .brand-mark svg{ position:relative; z-index:1; width:18px; height:18px; }
+
+  .brand-text h1{
+    margin:0; font-size:18px; font-weight:700; letter-spacing:0.04em;
+  }
+  .brand-text p{
+    margin:1px 0 0; font-size:11.5px; color:var(--ink-2);
+    font-family:'JetBrains Mono', monospace; letter-spacing:0.03em;
+  }
+
+  .status-pill{
+    display:flex; align-items:center; gap:8px;
+    padding:7px 14px;
+    border-radius:999px;
+    background:rgba(255,255,255,0.04);
+    border:1px solid var(--line);
+    font-family:'JetBrains Mono', monospace;
+    font-size:11.5px; letter-spacing:0.04em;
+    color:var(--ink-1);
+    white-space:nowrap;
+  }
+  .status-dot{
+    width:7px; height:7px; border-radius:50%;
+    background:var(--ink-2);
+    transition:background 0.3s, box-shadow 0.3s;
+  }
+  .status-pill.live .status-dot{
+    background:var(--ch-x);
+    box-shadow:0 0 8px var(--ch-x);
+    animation:pulse-dot 1.6s ease-in-out infinite;
+  }
+  .status-pill.error .status-dot{ background:var(--g-wave); box-shadow:0 0 8px var(--g-wave); }
+  @keyframes pulse-dot{ 0%,100%{opacity:1;} 50%{opacity:0.35;} }
+
+  /* ---------- Control row ---------- */
+  .control-row{
+    display:flex; align-items:center; gap:14px;
+    margin-bottom:22px;
+    flex-wrap:wrap;
+  }
+
+  #startBtn{
+    appearance:none; border:none; cursor:pointer;
+    font-family:'Outfit', sans-serif;
+    font-weight:600; font-size:14.5px; letter-spacing:0.01em;
+    color:#04211c;
+    padding:13px 26px;
+    border-radius:12px;
+    background:linear-gradient(135deg, var(--ch-x), #38bdf8);
+    box-shadow:0 8px 24px -8px rgba(94,234,212,0.5);
+    transition:transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+    display:flex; align-items:center; gap:9px;
+  }
+  #startBtn:hover{ transform:translateY(-1px); box-shadow:0 10px 28px -6px rgba(94,234,212,0.6); }
+  #startBtn:active{ transform:translateY(0); }
+  #startBtn:disabled{
+    background:rgba(255,255,255,0.06); color:var(--ink-2);
+    box-shadow:none; cursor:default; transform:none;
+  }
+  #startBtn.stop{
+    background:linear-gradient(135deg, var(--g-wave), #f43f5e);
+    color:#2b0a10;
+    box-shadow:0 8px 24px -8px rgba(251,113,133,0.45);
+  }
+
+  .rate-readout{
+    font-family:'JetBrains Mono', monospace;
+    font-size:12px; color:var(--ink-2);
+    display:flex; gap:18px; align-items:center;
+  }
+  .rate-readout span{ color:var(--ink-1); }
+  .rate-readout b{ color:var(--ch-x); font-weight:600; }
+
+  /* ---------- Panels (glassmorphism) ---------- */
+  .panel{
+    border-radius:var(--radius);
+    background:linear-gradient(165deg, rgba(255,255,255,0.045), rgba(255,255,255,0.01));
+    border:1px solid var(--panel-edge);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow:0 1px 0 rgba(255,255,255,0.04) inset, 0 30px 60px -40px rgba(0,0,0,0.6);
+  }
+
+  .scope-panel{ padding:18px 18px 14px; margin-bottom:22px; }
+
+  .scope-head{
+    display:flex; justify-content:space-between; align-items:baseline;
+    margin-bottom:10px;
+  }
+  .scope-head h2{
+    margin:0; font-size:13px; font-weight:600;
+    letter-spacing:0.08em; text-transform:uppercase; color:var(--ink-1);
+  }
+  .legend{ display:flex; gap:14px; }
+  .legend-item{
+    display:flex; align-items:center; gap:6px;
+    font-family:'JetBrains Mono', monospace; font-size:11px; color:var(--ink-2);
+  }
+  .legend-swatch{ width:9px; height:9px; border-radius:2px; }
+
+  #waveCanvas{
+    width:100%; height:240px; display:block;
+    border-radius:var(--radius-sm);
+    background:radial-gradient(120% 140% at 50% 0%, rgba(255,255,255,0.025), transparent 60%), #060a0d;
+    border:1px solid var(--line);
+  }
+
+  .scope-foot{
+    display:flex; justify-content:space-between;
+    margin-top:10px;
+    font-family:'JetBrains Mono', monospace; font-size:11px; color:var(--ink-2);
+  }
+  .axis-readout{ display:flex; gap:16px; }
+  .axis-readout b{ font-weight:600; }
+  .axis-readout .x b{ color:var(--ch-x); }
+  .axis-readout .y b{ color:var(--ch-y); }
+  .axis-readout .z b{ color:var(--ch-z); }
+
+  /* ---------- Prediction panel ---------- */
+  .pred-panel{ padding:20px 20px 22px; }
+  .pred-head{
+    display:flex; justify-content:space-between; align-items:baseline;
+    margin-bottom:16px;
+  }
+  .pred-head h2{
+    margin:0; font-size:13px; font-weight:600;
+    letter-spacing:0.08em; text-transform:uppercase; color:var(--ink-1);
+  }
+  .pred-head .infer-time{
+    font-family:'JetBrains Mono', monospace; font-size:11px; color:var(--ink-2);
+  }
+
+  .gesture-row{
+    display:flex; align-items:center; gap:16px;
+    padding:13px 4px;
+    border-bottom:1px solid var(--line);
+  }
+  .gesture-row:last-child{ border-bottom:none; }
+
+  .gesture-icon{
+    width:40px; height:40px; flex:0 0 40px;
+    border-radius:11px;
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(255,255,255,0.04);
+    border:1px solid var(--line);
+    transition:border-color 0.25s, box-shadow 0.25s, background 0.25s;
+  }
+  .gesture-icon svg{ width:20px; height:20px; stroke:var(--ink-2); transition:stroke 0.25s; }
+
+  .gesture-meta{ flex:1; min-width:0; }
+  .gesture-name{
+    font-size:14.5px; font-weight:500; margin-bottom:6px;
+    display:flex; justify-content:space-between; align-items:baseline;
+  }
+  .gesture-pct{ font-family:'JetBrains Mono', monospace; font-size:13px; color:var(--ink-2); }
+
+  .meter-track{
+    height:7px; border-radius:99px;
+    background:rgba(255,255,255,0.05);
+    overflow:hidden;
+  }
+  .meter-fill{
+    height:100%; width:0%; border-radius:99px;
+    transition:width 0.18s ease-out;
+  }
+
+  .gesture-row.active .gesture-icon{
+    box-shadow:0 0 18px -2px var(--row-color, var(--ch-x));
+    border-color:var(--row-color, var(--ch-x));
+    background:color-mix(in srgb, var(--row-color, var(--ch-x)) 16%, transparent);
+  }
+  .gesture-row.active .gesture-icon svg{ stroke:var(--row-color, var(--ch-x)); }
+  .gesture-row.active .gesture-name{ color:var(--ink-0); }
+
+  .gesture-row[data-g="circle"]{ --row-color: var(--g-circle); }
+  .gesture-row[data-g="wave"]{ --row-color: var(--g-wave); }
+  .gesture-row[data-g="idle"]{ --row-color: var(--g-amber); }
+
+  /* ---------- Footer / log ---------- */
+  .log-line{
+    margin-top:18px;
+    font-family:'JetBrains Mono', monospace; font-size:11.5px;
+    color:var(--ink-2);
+    padding:12px 16px;
+    border-radius:var(--radius-sm);
+    background:rgba(255,255,255,0.025);
+    border:1px solid var(--line);
+    white-space:pre-wrap;
+    word-break:break-word;
+    max-height:90px;
+    overflow-y:auto;
+  }
+
+  .permission-note{
+    font-size:12.5px; color:var(--ink-2); line-height:1.5;
+    margin-top:10px;
+  }
+  .permission-note b{ color:var(--ink-1); }
+
+  @media (max-width:560px){
+    header{ flex-wrap:wrap; }
+    .control-row{ flex-direction:column; align-items:stretch; }
+    #startBtn{ justify-content:center; }
+    .rate-readout{ justify-content:space-between; }
+    #waveCanvas{ height:190px; }
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .status-pill.live .status-dot{ animation:none; }
+    *{ transition-duration:0.01ms !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="grid-veil"></div>
+
+<div class="shell">
+
+  <header>
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M3 12C3 12 6 4 12 4C18 4 21 12 21 12C21 12 18 20 12 20C6 20 3 12 3 12Z" stroke="#eef3f6" stroke-width="1.6"/>
+          <circle cx="12" cy="12" r="2.2" fill="#eef3f6"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <h1>MOTUS</h1>
+        <p>REAL-TIME GESTURE CLASSIFIER · 62.5HZ</p>
+      </div>
+    </div>
+    <div class="status-pill" id="statusPill">
+      <span class="status-dot"></span>
+      <span id="statusText">SENSORS OFFLINE</span>
+    </div>
+  </header>
+
+  <div class="control-row">
+    <button id="startBtn">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 4L19 12L5 20V4Z" fill="currentColor"/></svg>
+      Start Sensors
+    </button>
+    <div class="rate-readout">
+      <div>SAMPLE RATE <b id="rateOut">— Hz</b></div>
+      <div>SOURCE <span id="sourceOut">none</span></div>
+      <div>BUFFER <span id="bufferOut">0 / 0</span></div>
+    </div>
+  </div>
+
+  <section class="panel scope-panel">
+    <div class="scope-head">
+      <h2>Accelerometer Trace</h2>
+      <div class="legend">
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--ch-x)"></span>X</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--ch-y)"></span>Y</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--ch-z)"></span>Z</div>
+      </div>
+    </div>
+    <canvas id="waveCanvas"></canvas>
+    <div class="scope-foot">
+      <div class="axis-readout">
+        <span class="x">X <b id="xOut">0.00</b></span>
+        <span class="y">Y <b id="yOut">0.00</b></span>
+        <span class="z">Z <b id="zOut">0.00</b></span>
+      </div>
+      <div id="modelStatus">model: not loaded</div>
+    </div>
+  </section>
+
+  <section class="panel pred-panel">
+    <div class="pred-head">
+      <h2>Classification</h2>
+      <div class="infer-time" id="inferTime">inference: — ms</div>
+    </div>
+
+    <div class="gesture-row" data-g="circle">
+      <div class="gesture-icon">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.8"/></svg>
+      </div>
+      <div class="gesture-meta">
+        <div class="gesture-name"><span>Circle</span><span class="gesture-pct" id="pctCircle">0%</span></div>
+        <div class="meter-track"><div class="meter-fill" id="fillCircle" style="background:var(--g-circle)"></div></div>
+      </div>
+    </div>
+
+    <div class="gesture-row" data-g="wave">
+      <div class="gesture-icon">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 12C5 8 7 8 9 12C11 16 13 16 15 12C17 8 19 8 21 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </div>
+      <div class="gesture-meta">
+        <div class="gesture-name"><span>Wave</span><span class="gesture-pct" id="pctWave">0%</span></div>
+        <div class="meter-track"><div class="meter-fill" id="fillWave" style="background:var(--g-wave)"></div></div>
+      </div>
+    </div>
+
+    <div class="gesture-row" data-g="idle">
+      <div class="gesture-icon">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="6" y="6" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.8"/></svg>
+      </div>
+      <div class="gesture-meta">
+        <div class="gesture-name"><span>Idle</span><span class="gesture-pct" id="pctIdle">0%</span></div>
+        <div class="meter-track"><div class="meter-fill" id="fillIdle" style="background:var(--g-amber)"></div></div>
+      </div>
+    </div>
+
+    <p class="permission-note" id="permNote">Tap <b>Start Sensors</b> to request motion access. On iOS this requires a user gesture and HTTPS.</p>
+  </section>
+
+  <div class="log-line" id="logLine">[boot] waiting for model + sensors…</div>
+
+</div>
+
+<script src="edge-impulse-standalone.js"></script>
+<script>
+(function(){
+
+  /* ============================================================
+     CONFIG
+     ============================================================ */
+  const SAMPLE_RATE_HZ   = 62.5;
+  const SAMPLE_INTERVAL  = 1000 / SAMPLE_RATE_HZ; // ~16ms
+  const WINDOW_SIZE_MS   = 1000;                  // adjust to match your EI impulse window
+  const FRAME_COUNT      = Math.round(SAMPLE_RATE_HZ * (WINDOW_SIZE_MS / 1000)); // samples per axis
+  const INFERENCE_HOP_MS = 250;  // how often we run a classification once buffer is full
+
+  const LABELS_FALLBACK = ['Circle', 'Wave', 'Idle'];
+
+  /* ============================================================
+     DOM REFS
+     ============================================================ */
+  const startBtn     = document.getElementById('startBtn');
+  const statusPill    = document.getElementById('statusPill');
+  const statusText    = document.getElementById('statusText');
+  const rateOut       = document.getElementById('rateOut');
+  const sourceOut     = document.getElementById('sourceOut');
+  const bufferOut     = document.getElementById('bufferOut');
+  const xOut          = document.getElementById('xOut');
+  const yOut          = document.getElementById('yOut');
+  const zOut          = document.getElementById('zOut');
+  const modelStatusEl = document.getElementById('modelStatus');
+  const inferTimeEl   = document.getElementById('inferTime');
+  const logLine       = document.getElementById('logLine');
+  const permNote      = document.getElementById('permNote');
+  const canvas        = document.getElementById('waveCanvas');
+  const ctx           = canvas.getContext('2d');
+
+  const rows = {
+    circle: { row: document.querySelector('.gesture-row[data-g="circle"]'), pct: document.getElementById('pctCircle'), fill: document.getElementById('fillCircle') },
+    wave:   { row: document.querySelector('.gesture-row[data-g="wave"]'),   pct: document.getElementById('pctWave'),   fill: document.getElementById('fillWave') },
+    idle:   { row: document.querySelector('.gesture-row[data-g="idle"]'),   pct: document.getElementById('pctIdle'),   fill: document.getElementById('fillIdle') },
+  };
+
+  function log(msg){
+    const t = new Date().toLocaleTimeString();
+    logLine.textContent = `[${t}] ${msg}`;
+    console.log('[MOTUS]', msg);
+  }
+
+  /* ============================================================
+     CANVAS / WAVEFORM SETUP
+     ============================================================ */
+  let dpr = window.devicePixelRatio || 1;
+  function resizeCanvas(){
+    dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width  = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+  }
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+
+  // rolling history for plotting (separate from the inference buffer)
+  const PLOT_POINTS = 220;
+  const plotX = new Array(PLOT_POINTS).fill(0);
+  const plotY = new Array(PLOT_POINTS).fill(0);
+  const plotZ = new Array(PLOT_POINTS).fill(0);
+
+  let glowColor = null; // set when a gesture is confidently classified, bleeds into scope glow
+
+  function pushPlot(x, y, z){
+    plotX.push(x); plotX.shift();
+    plotY.push(y); plotY.shift();
+    plotZ.push(z); plotZ.shift();
+  }
+
+  function drawWave(){
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    // subtle glow bleed when a gesture is confidently active
+    if (glowColor){
+      const grad = ctx.createRadialGradient(w/2, h/2, 0, w/2, h/2, w*0.7);
+      grad.addColorStop(0, glowColor + '22');
+      grad.addColorStop(1, 'transparent');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0,0,w,h);
+    }
+
+    // horizontal grid lines
+    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+    ctx.lineWidth = 1 * dpr;
+    const rows_ = 4;
+    for (let i = 1; i < rows_; i++){
+      const y = (h / rows_) * i;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+      ctx.stroke();
+    }
+    // center line
+    ctx.strokeStyle = 'rgba(255,255,255,0.09)';
+    ctx.beginPath();
+    ctx.moveTo(0, h/2);
+    ctx.lineTo(w, h/2);
+    ctx.stroke();
+
+    const range = 20; // +/- m/s^2 (or g, depending on sensor) mapped to canvas height
+    const scaleY = (h / 2) / range;
+    const stepX = w / (PLOT_POINTS - 1);
+
+    function drawLine(data, color){
+      ctx.beginPath();
+      ctx.lineWidth = 2 * dpr;
+      ctx.strokeStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 6 * dpr;
+      for (let i = 0; i < data.length; i++){
+        const px = i * stepX;
+        const py = (h/2) - (data[i] * scaleY);
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
+    drawLine(plotX, '#5eead4');
+    drawLine(plotY, '#fb7185');
+    drawLine(plotZ, '#a78bfa');
+  }
+
+  // continuous render loop, independent of sample rate, so it stays smooth
+  function renderLoop(){
+    drawWave();
+    requestAnimationFrame(renderLoop);
+  }
+  requestAnimationFrame(renderLoop);
+
+  /* ============================================================
+     EDGE IMPULSE MODEL
+     ============================================================ */
+  let classifierReady = false;
+  let classifierInitialized = false;
+  let ei_labels = LABELS_FALLBACK.slice();
+  let runImpulse = null; // function(features) -> result
+
+  function setModelStatus(text){ modelStatusEl.textContent = `model: ${text}`; }
+
+  function initClassifier(){
+    // edge-impulse-standalone.js exposes a global `Module` (Emscripten) and,
+    // once ready, helper bindings on `window` for running the classifier.
+    if (typeof Module === 'undefined'){
+      setModelStatus('script not found');
+      log('error: edge-impulse-standalone.js did not load. Check /public path.');
+      return;
+    }
+
+    Module.onRuntimeInitialized = function(){
+      try{
+        // Standard EI WASM exposes these helpers once the runtime is up.
+        // init_impulse() resets internal state; some builds also export
+        // get_project() for metadata such as labels and frequency.
+        if (typeof Module.init_impulse === 'function'){
+          Module.init_impulse();
+        }
+
+        if (typeof Module.get_properties === 'function'){
+          try{
+            const props = Module.get_properties();
+            if (props && props.labels && props.labels.length) ei_labels = props.labels;
+          }catch(e){ /* not all builds expose this the same way */ }
+        }
+
+        classifierInitialized = true;
+        classifierReady = true;
+        setModelStatus('ready · ' + ei_labels.join(', '));
+        log('Edge Impulse WASM runtime initialized.');
+      }catch(e){
+        setModelStatus('init failed');
+        log('classifier init error: ' + e.message);
+      }
+    };
+  }
+
+  /**
+   * Runs one classification pass on a flattened [x0,y0,z0,x1,y1,z1,...] array.
+   * Wraps the standalone WASM's exposed `run_classifier` (the standard
+   * Edge Impulse JS binding signature: run_classifier(rawFeatures, debug)).
+   */
+  function classify(features){
+    if (!classifierReady || typeof Module === 'undefined') return null;
+
+    try{
+      // Most EI standalone builds expose `Module.run_classifier` returning
+      // { results: [{label, value}, ...], anomaly, timing: {dsp, classification, anomaly} }
+      if (typeof Module.run_classifier === 'function'){
+        const res = Module.run_classifier(features, false);
+        return res;
+      }
+
+      // Some builds wrap classification behind a `WasmClassifier`-style object.
+      if (typeof Module.classify === 'function'){
+        return Module.classify(features);
+      }
+
+      return null;
+    }catch(e){
+      log('inference error: ' + e.message);
+      return null;
+    }
+  }
+
+  initClassifier();
+
+  /* ============================================================
+     SENSOR BUFFER  (X,Y,Z @ 62.5Hz, flattened for inference)
+     ============================================================ */
+  const buffer = []; // flat array: [x,y,z, x,y,z, ...]
+  let lastSampleTime = 0;
+  let sampleCount = 0;
+  let rateWindowStart = performance.now();
+  let rateWindowCount = 0;
+
+  function pushSample(x, y, z){
+    // throttle to target sample rate regardless of how often the underlying
+    // event fires (DeviceMotion can fire faster or slower than 62.5Hz)
+    const now = performance.now();
+    if (now - lastSampleTime < SAMPLE_INTERVAL - 1) return;
+    lastSampleTime = now;
+
+    buffer.push(x, y, z);
+    // keep only the most recent FRAME_COUNT samples (flattened => *3)
+    const maxLen = FRAME_COUNT * 3;
+    while (buffer.length > maxLen) buffer.shift();
+
+    sampleCount++;
+    rateWindowCount++;
+    if (now - rateWindowStart > 1000){
+      rateOut.textContent = rateWindowCount + ' Hz';
+      rateWindowCount = 0;
+      rateWindowStart = now;
+    }
+
+    xOut.textContent = x.toFixed(2);
+    yOut.textContent = y.toFixed(2);
+    zOut.textContent = z.toFixed(2);
+    pushPlot(x, y, z);
+
+    bufferOut.textContent = `${buffer.length/3} / ${FRAME_COUNT}`;
+  }
+
+  /* ============================================================
+     INFERENCE LOOP — runs on a timer once buffer is full
+     ============================================================ */
+  let inferenceTimer = null;
+
+  function startInferenceLoop(){
+    if (inferenceTimer) return;
+    inferenceTimer = setInterval(() => {
+      if (buffer.length < FRAME_COUNT * 3) return; // not full yet
+      if (!classifierReady) return;
+
+      const features = buffer.slice(-FRAME_COUNT * 3); // flattened x,y,z,...
+
+      const t0 = performance.now();
+      const result = classify(features);
+      const t1 = performance.now();
+      inferTimeEl.textContent = `inference: ${(t1 - t0).toFixed(1)} ms`;
+
+      applyResult(result);
+    }, INFERENCE_HOP_MS);
+  }
+
+  function stopInferenceLoop(){
+    if (inferenceTimer){ clearInterval(inferenceTimer); inferenceTimer = null; }
+  }
+
+  function normalizeResults(result){
+    // Normalizes whatever shape the WASM binding returns into
+    // [{label, value}] sorted desc. Falls back to a synthetic
+    // "no result yet" shape so the UI never throws.
+    if (!result){
+      return ei_labels.map(l => ({ label: l, value: 0 }));
+    }
+    if (Array.isArray(result.results)) return result.results;
+    if (Array.isArray(result)) return result;
+    return ei_labels.map(l => ({ label: l, value: 0 }));
+  }
+
+  function applyResult(result){
+    const scores = normalizeResults(result);
+    let top = { label: null, value: -1 };
+
+    scores.forEach(s => {
+      const key = (s.label || '').toLowerCase();
+      const pct = Math.round((s.value || 0) * 100);
+      const entry = rows[key];
+      if (entry){
+        entry.pct.textContent = pct + '%';
+        entry.fill.style.width = pct + '%';
+      }
+      if (s.value > top.value) top = { label: key, value: s.value };
+    });
+
+    Object.values(rows).forEach(r => r.row.classList.remove('active'));
+    const CONF_THRESHOLD = 0.6;
+    if (top.label && rows[top.label] && top.value >= CONF_THRESHOLD && top.label !== 'idle'){
+      rows[top.label].row.classList.add('active');
+      glowColor = getComputedStyle(rows[top.label].row).getPropertyValue('--row-color').trim() || null;
+    } else if (top.label && rows[top.label]){
+      rows[top.label].row.classList.add('active');
+      glowColor = null;
+    } else {
+      glowColor = null;
+    }
+  }
+
+  /* ============================================================
+     SENSOR PIPELINE
+     LinearAcceleration API -> DeviceMotionEvent -> fallback filter
+     ============================================================ */
+  let sensorHandle = null; // generic stop() holder
+  let usingFallbackFilter = false;
+  // gravity-removal state for the DeviceMotion fallback (simple high-pass)
+  let gravity = { x: 0, y: 0, z: 0 };
+  const GRAVITY_ALPHA = 0.8;
+
+  function setStatus(live, label, source){
+    statusPill.classList.toggle('live', live);
+    statusPill.classList.toggle('error', !live && label === 'ERROR');
+    statusText.textContent = label;
+    if (source) sourceOut.textContent = source;
+  }
+
+  function tryLinearAccelerationSensor(){
+    if (typeof LinearAccelerationSensor === 'undefined') return false;
+
+    try{
+      const sensor = new LinearAccelerationSensor({ frequency: SAMPLE_RATE_HZ });
+      sensor.addEventListener('reading', () => {
+        pushSample(sensor.x || 0, sensor.y || 0, sensor.z || 0);
+      });
+      sensor.addEventListener('error', (e) => {
+        log('LinearAccelerationSensor error: ' + (e.error ? e.error.message : 'unknown') + ' — falling back.');
+        sensor.stop();
+        startDeviceMotionPipeline();
+      });
+      sensor.start();
+
+      sensorHandle = { stop: () => sensor.stop() };
+      setStatus(true, 'LIVE · LINEAR ACCEL SENSOR', 'LinearAccelerationSensor');
+      log('Using Generic Sensor API (LinearAccelerationSensor).');
+      return true;
+    }catch(e){
+      log('LinearAccelerationSensor unavailable: ' + e.message);
+      return false;
+    }
+  }
+
+  function startDeviceMotionPipeline(){
+    if (typeof DeviceMotionEvent === 'undefined'){
+      log('DeviceMotionEvent unsupported — using synthetic fallback.');
+      startFallbackFilter();
+      return;
+    }
+
+    const handler = (e) => {
+      // Prefer the device's own gravity-compensated value if available.
+      const lin = e.acceleration; // already gravity-free on most platforms
+      const raw = e.accelerationIncludingGravity;
+
+      if (lin && (lin.x !== null && lin.x !== undefined)){
+        pushSample(lin.x || 0, lin.y || 0, lin.z || 0);
+        usingFallbackFilter = false;
+      } else if (raw && (raw.x !== null && raw.x !== undefined)){
+        // device only gives gravity-included accel: run a simple
+        // high-pass filter to strip out the gravity component ourselves.
+        usingFallbackFilter = true;
+        gravity.x = GRAVITY_ALPHA * gravity.x + (1 - GRAVITY_ALPHA) * raw.x;
+        gravity.y = GRAVITY_ALPHA * gravity.y + (1 - GRAVITY_ALPHA) * raw.y;
+        gravity.z = GRAVITY_ALPHA * gravity.z + (1 - GRAVITY_ALPHA) * raw.z;
+        pushSample(raw.x - gravity.x, raw.y - gravity.y, raw.z - gravity.z);
+      }
+    };
+
+    window.addEventListener('devicemotion', handler);
+    sensorHandle = { stop: () => window.removeEventListener('devicemotion', handler) };
+    setStatus(true, usingFallbackFilter ? 'LIVE · HIGH-PASS FALLBACK' : 'LIVE · DEVICEMOTION', 'DeviceMotionEvent');
+    log('Using DeviceMotionEvent' + (usingFallbackFilter ? ' with software gravity filter.' : '.'));
+  }
+
+  // last-resort synthetic generator so the UI / pipeline can still be
+  // demoed on a desktop browser with no motion hardware at all.
+  function startFallbackFilter(){
+    let t = 0;
+    const id = setInterval(() => {
+      t += SAMPLE_INTERVAL / 1000;
+      const x = Math.sin(t * 2.0) * 2 + (Math.random() - 0.5) * 0.3;
+      const y = Math.cos(t * 1.3) * 1.5 + (Math.random() - 0.5) * 0.3;
+      const z = Math.sin(t * 0.7) * 1.0 + (Math.random() - 0.5) * 0.3;
+      pushSample(x, y, z);
+    }, SAMPLE_INTERVAL);
+
+    sensorHandle = { stop: () => clearInterval(id) };
+    setStatus(true, 'LIVE · SYNTHETIC DEMO DATA', 'fallback generator');
+    log('No motion hardware detected — running synthetic fallback so the pipeline can still be exercised.');
+  }
+
+  async function requestPermissionIfNeeded(){
+    // iOS Safari requires an explicit user-gesture permission prompt.
+    if (typeof DeviceMotionEvent !== 'undefined' &&
+        typeof DeviceMotionEvent.requestPermission === 'function'){
+      const result = await DeviceMotionEvent.requestPermission();
+      if (result !== 'granted'){
+        throw new Error('Motion permission denied.');
+      }
+    }
+  }
+
+  async function startSensorPipeline(){
+    try{
+      await requestPermissionIfNeeded();
+    }catch(e){
+      setStatus(false, 'ERROR · PERMISSION DENIED');
+      log(e.message + ' Enable motion access in Settings and retry.');
+      return false;
+    }
+
+    permNote.style.display = 'none';
+
+    // 1. Try the modern Generic Sensor API
+    if (tryLinearAccelerationSensor()) return true;
+
+    // 2. Fall back to DeviceMotionEvent (with software gravity filter if needed)
+    startDeviceMotionPipeline();
+    return true;
+  }
+
+  function stopSensorPipeline(){
+    if (sensorHandle && typeof sensorHandle.stop === 'function') sensorHandle.stop();
+    sensorHandle = null;
+    setStatus(false, 'SENSORS OFFLINE', '—');
+    rateOut.textContent = '— Hz';
+  }
+
+  /* ============================================================
+     START / STOP BUTTON
+     ============================================================ */
+  let running = false;
+
+  startBtn.addEventListener('click', async () => {
+    if (!running){
+      startBtn.disabled = true;
+      const ok = await startSensorPipeline();
+      startBtn.disabled = false;
+
+      if (ok){
+        running = true;
+        startBtn.classList.add('stop');
+        startBtn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor"/></svg> Stop Sensors';
+        startInferenceLoop();
+      }
+    } else {
+      running = false;
+      stopSensorPipeline();
+      stopInferenceLoop();
+      startBtn.classList.remove('stop');
+      startBtn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 4L19 12L5 20V4Z" fill="currentColor"/></svg> Start Sensors';
+      glowColor = null;
+    }
+  });
+
+})();
+</script>
+</body>
+</html>
